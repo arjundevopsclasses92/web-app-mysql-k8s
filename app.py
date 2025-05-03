@@ -1,19 +1,11 @@
-
 from flask import Flask, render_template, request, redirect, url_for, flash, session
-import mysql.connector
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = 'your_secret_key_here'  # Secret key for session
+app.secret_key = 'your_secret_key_here'
 
-def get_db_connection():
-    return mysql.connector.connect(
-        host="mysql",  # This is the name of your MySQL container
-        user="root",
-        password="root",  # The root password you set in Dockerfile
-        database="flaskapp"
-    )
-
+# In-memory user storage (for demo purposes only — resets on app restart)
+users = {}
 
 # Route to Home Page
 @app.route('/')
@@ -27,18 +19,16 @@ def register():
         username = request.form['username']
         email = request.form['email']
         password = request.form['password']
-        
-        # Hash the password
+
+        if email in users:
+            flash("Email already registered.", "warning")
+            return redirect(url_for('register'))
+
         hashed_password = generate_password_hash(password, method='sha256')
-        
-        # Connect to MySQL and insert the user data
-        connection = get_db_connection()
-        cursor = connection.cursor()
-        cursor.execute('INSERT INTO users (username, email, password) VALUES (%s, %s, %s)',
-                       (username, email, hashed_password))
-        connection.commit()
-        cursor.close()
-        connection.close()
+        users[email] = {
+            'username': username,
+            'password': hashed_password
+        }
 
         flash("Registration successful! You can now log in.", "success")
         return redirect(url_for('login'))
@@ -51,18 +41,11 @@ def login():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
-        
-        # Check if the user exists
-        connection = get_db_connection()
-        cursor = connection.cursor()
-        cursor.execute('SELECT * FROM users WHERE email = %s', (email,))
-        user = cursor.fetchone()
-        cursor.close()
-        connection.close()
 
-        if user and check_password_hash(user[3], password):  # user[3] is the password field
-            session['user_id'] = user[0]  # Store user ID in session
-            session['username'] = user[1]  # Store username in session
+        user = users.get(email)
+        if user and check_password_hash(user['password'], password):
+            session['user_id'] = email
+            session['username'] = user['username']
             flash("Login successful!", "success")
             return redirect(url_for('dashboard'))
         else:
@@ -70,7 +53,7 @@ def login():
     
     return render_template('login.html')
 
-# Route to Dashboard (Only accessible after login)
+# Route to Dashboard
 @app.route('/dashboard')
 def dashboard():
     if 'user_id' not in session:
@@ -81,8 +64,7 @@ def dashboard():
 # Logout Route
 @app.route('/logout')
 def logout():
-    session.pop('user_id', None)
-    session.pop('username', None)
+    session.clear()
     flash("You have been logged out.", "info")
     return redirect(url_for('index'))
 
