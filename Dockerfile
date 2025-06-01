@@ -1,21 +1,24 @@
-FROM python:3.6-slim
+FROM python:3.9-slim
 
-RUN apt-get clean \
-    && apt-get -y update
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get -y install \
-    nginx \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     python3-dev \
-    build-essential
+    libpcre3-dev \
+    libssl-dev \
+    nginx \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy templates folder and files
 COPY ./templates /app/templates
 COPY app.py /app/
 COPY requirements.txt /app/
 
-RUN pip install -r requirements.txt --src /usr/local/src
+RUN pip install --upgrade pip
+RUN pip install -r requirements.txt
 
 EXPOSE 5000
 CMD [ "python", "app.py" ]
+
