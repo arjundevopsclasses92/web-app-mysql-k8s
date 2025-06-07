@@ -1,10 +1,17 @@
 pipeline {
     agent any
     environment {
-        AWS_ECR_REPOSITORY_URL = "654654348225.dkr.ecr.us-east-2.amazonaws.com"
+        AWS_ECR_REPOSITORY_URL = "520385696955.dkr.ecr.ap-south-1.amazonaws.com"
         WEB_APP_ECR_REPO_NAME = 'web-app'
         MYSQL_ECR_REPO_NAME = "mysql-db"
+        REGION = "ap-south-1"
     }
+ parameters {
+    string(name: 'AWS-CREDENTIALS_ID', defaultValue: '', description: 'Enter credenils id')
+    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Enter credenils id')
+    booleanParam(name: 'RUN_DEPLOY', defaultValue: false, description: 'do you want deploy enter true')
+  }
+
     stages {
         stage('Install dependencies') {
             steps {
@@ -28,8 +35,8 @@ pipeline {
             steps {
                 script {
                     def scannerHome = tool 'sonarscanner'
-                    withSonarQubeEnv('sonar') {
-                        sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=test"
+                    withSonarQubeEnv('SONAR-TOKEN') {
+                        sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=python"
                     }
                 }
             }
@@ -37,51 +44,33 @@ pipeline {
         stage ('Build web app docker image') {
             steps {
                 script {
-                    sh "docker build -t ${AWS_ECR_REPOSITORY_URL}/${WEB_APP_ECR_REPO_NAME}:${BUILD_NUMBER} ."
+                    sh "docker build -t ${AWS_ECR_REPOSITORY_URL}/${WEB_APP_ECR_REPO_NAME}:${params.IMAGE_TAG} ."
                 }
             }
         }
         stage('Publish web app image into aws ecr') {
             steps {
                 script {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'eks-credentials']]) {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: "{params.AWS-CREDENTIALS_ID}", accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]){
                   sh """
-                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                        export AWS_DEFAULT_REGION=us-east-2
-                        aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ${AWS_ECR_REPOSITORY_URL}
-                        docker push ${AWS_ECR_REPOSITORY_URL}/${WEB_APP_ECR_REPO_NAME}:${BUILD_NUMBER}
+                        export AWS_DEFAULT_REGION=${REGION}
+                        aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${AWS_ECR_REPOSITORY_URL}
+                        docker push ${AWS_ECR_REPOSITORY_URL}/${WEB_APP_ECR_REPO_NAME}:${params.IMAGE_TAG}
                   """
             
                 }
             }
          }
         }
-        stage ('Build mysql docker image') {
+        stage("deploy"){
+             when {
+              expression { return params.RUN_DEPLOY == true }
+           }
             steps {
                 script {
-                    sh """
-                    cd mysql-db
-                    docker build -t ${AWS_ECR_REPOSITORY_URL}/${MYSQL_ECR_REPO_NAME}:${BUILD_NUMBER} .
-                    """
+                   sh "docker run -itd --name python -p 9091:5000 ${AWS_ECR_REPOSITORY_URL}/${WEB_APP_ECR_REPO_NAME}:${params.IMAGE_TAG}}"
                 }
             }
-        }
-        stage('Publish mysql image into aws ecr') {
-            steps {
-                script {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'eks-credentials']]) {
-                  sh """
-                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                        export AWS_DEFAULT_REGION=us-east-2
-                        aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin ${AWS_ECR_REPOSITORY_URL}
-                        docker push ${AWS_ECR_REPOSITORY_URL}/${MYSQL_ECR_REPO_NAME}:${BUILD_NUMBER}
-                  """
-            
-                }
-            }
-        }
         }
                     
     }
